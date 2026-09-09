@@ -1,0 +1,24 @@
+# IntelliJ
+.idea/
+*.iml
+
+# Java
+target/
+*.log
+
+# Node
+node_modules/
+.next/
+dist/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Claude local settings
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
