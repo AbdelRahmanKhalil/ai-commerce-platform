@@ -1,0 +1,15 @@
+# Activated with --spring.profiles.active=local when running the backend against the
+# docker-compose infrastructure in ../infra.
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/aicommerce
+    username: aicommerce
+    password: ${DB_PASSWORD:aicommerce}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8081/realms/aicommerce
