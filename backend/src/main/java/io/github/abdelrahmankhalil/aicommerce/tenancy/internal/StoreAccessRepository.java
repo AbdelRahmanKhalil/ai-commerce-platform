@@ -9,6 +9,4 @@ import java.util.UUID;
 interface StoreAccessRepository extends JpaRepository<StoreAccess, UUID> {
 
     boolean existsByMembershipIdAndStoreIdAndRoleIn(UUID membershipId, UUID storeId, Collection<StoreRole> roles);
-
-    boolean existsByMembershipIdAndStoreIdAndRole(UUID membershipId, UUID storeId, StoreRole role);
 }

@@ -44,33 +44,85 @@ class StoreAccessAuthorizationIT extends AbstractIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    /**
+     * The "outsider" here is a genuine OWNER of their own, separate Organization - not
+     * merely an unaffiliated subject with no Membership anywhere. That distinction
+     * matters: an unaffiliated subject is rejected by the very first Membership
+     * lookup in {@code TenancyAuthorizationService}, without ever reaching the
+     * Store/Organization consistency check
+     * ({@code storeRepository.findByIdAndOrganizationId}) that guards the realistic
+     * attack - a legitimate principal, acting with their own valid Organization
+     * context, supplying a foreign Store id. Per ADR 004, application-layer scoping is
+     * the *only* enforcement mechanism (there is no RLS backstop), so the test must
+     * actually exercise that specific check, not stop one step short of it.
+     */
     @Test
-    void outsiderCannotReadAnotherOrganizationsStore() throws Exception {
-        String ownerSubject = provisionedSubject();
-        UUID organizationId = createOrganization(ownerSubject, "Org A");
-        UUID storeId = createStore(ownerSubject, organizationId, "org-a-store-" + UUID.randomUUID(), "EGP");
+    void ownerOfAnotherOrganizationCannotReadAForeignStore() throws Exception {
+        String ownerASubject = provisionedSubject();
+        UUID organizationAId = createOrganization(ownerASubject, "Org A");
+        UUID storeAId = createStore(ownerASubject, organizationAId, "org-a-store-" + UUID.randomUUID(), "EGP");
 
-        String outsiderSubject = provisionedSubject();
+        String ownerBSubject = provisionedSubject();
+        UUID organizationBId = createOrganization(ownerBSubject, "Org B");
 
-        mockMvc.perform(get("/api/organizations/{orgId}/stores/{storeId}", organizationId, storeId)
-                        .with(jwtSubject(outsiderSubject)))
+        mockMvc.perform(get("/api/organizations/{orgId}/stores/{storeId}", organizationBId, storeAId)
+                        .with(jwtSubject(ownerBSubject)))
                 .andExpect(status().isForbidden());
     }
 
     @Test
-    void outsiderCannotCreateAStoreInAnotherOrganization() throws Exception {
-        String ownerSubject = provisionedSubject();
-        UUID organizationId = createOrganization(ownerSubject, "Org B");
+    void ownerOfAnotherOrganizationCannotCreateAStoreInAForeignOrganization() throws Exception {
+        String ownerASubject = provisionedSubject();
+        UUID organizationAId = createOrganization(ownerASubject, "Org A");
 
-        String outsiderSubject = provisionedSubject();
+        String ownerBSubject = provisionedSubject();
+        createOrganization(ownerBSubject, "Org B");
 
-        mockMvc.perform(post("/api/organizations/{orgId}/stores", organizationId)
-                        .with(jwtSubject(outsiderSubject))
+        mockMvc.perform(post("/api/organizations/{orgId}/stores", organizationAId)
+                        .with(jwtSubject(ownerBSubject))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
                                 "name", "Intruder Store",
                                 "slug", "intruder-store-" + UUID.randomUUID(),
                                 "currencyCode", "EGP"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void ownerOfAnotherOrganizationCannotGrantStoreAccessOnAForeignStore() throws Exception {
+        String ownerASubject = provisionedSubject();
+        UUID organizationAId = createOrganization(ownerASubject, "Org A");
+        UUID storeAId = createStore(ownerASubject, organizationAId, "org-a-store-" + UUID.randomUUID(), "EGP");
+
+        String ownerBSubject = provisionedSubject();
+        UUID organizationBId = createOrganization(ownerBSubject, "Org B");
+        UUID ownerBUserAccountId = userAccountId(ownerBSubject);
+
+        mockMvc.perform(post("/api/organizations/{orgId}/stores/{storeId}/store-access", organizationBId, storeAId)
+                        .with(jwtSubject(ownerBSubject))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "userAccountId", ownerBUserAccountId.toString(),
+                                "role", "CATALOG_EDITOR"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void memberCannotGrantStoreAccess() throws Exception {
+        String ownerSubject = provisionedSubject();
+        UUID organizationId = createOrganization(ownerSubject, "Org D");
+        UUID storeId = createStore(ownerSubject, organizationId, "org-d-store-" + UUID.randomUUID(), "EGP");
+
+        String memberSubject = provisionedSubject();
+        UUID memberUserAccountId = userAccountId(memberSubject);
+        TenancyFixtures.addMembership(jdbcTemplate, memberUserAccountId, organizationId, "MEMBER");
+
+        mockMvc.perform(post("/api/organizations/{orgId}/stores/{storeId}/store-access", organizationId, storeId)
+                        .with(jwtSubject(memberSubject))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "userAccountId", memberUserAccountId.toString(),
+                                "role", "CATALOG_EDITOR"))))
                 .andExpect(status().isForbidden());
     }
 
