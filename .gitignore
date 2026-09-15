@@ -16,8 +16,9 @@ dist/
 .env.*
 !.env.example
 
-# Claude local settings
+# Claude local settings and isolated worktree checkouts
 .claude/settings.local.json
+.claude/worktrees/
 
 # OS
 .DS_Store
