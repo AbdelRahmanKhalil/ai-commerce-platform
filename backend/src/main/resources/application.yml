@@ -1,3 +1,10 @@
+app:
+  security:
+    # Required audience on every JWT this API accepts - see AudienceValidator. The
+    # Keycloak realm is shared across clients (ADR 003), so issuer validation alone
+    # doesn't prove a token was minted for this API.
+    expected-audience: aicommerce-api
+
 spring:
   application:
     name: ai-commerce-backend

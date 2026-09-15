@@ -1,6 +1,5 @@
 package io.github.abdelrahmankhalil.aicommerce.tenancy.internal;
 
-import io.github.abdelrahmankhalil.aicommerce.tenancy.MembershipNotFoundException;
 import io.github.abdelrahmankhalil.aicommerce.tenancy.OrganizationRole;
 import io.github.abdelrahmankhalil.aicommerce.tenancy.StoreRole;
 import io.github.abdelrahmankhalil.aicommerce.tenancy.TenancyAccessDeniedException;
@@ -57,6 +56,10 @@ public class StoreManagementService {
 
         Membership targetMembership = membershipRepository.findByUserAccountIdAndOrganizationId(targetUserAccountId, organizationId)
                 .orElseThrow(() -> new MembershipNotFoundException(targetUserAccountId, organizationId));
+
+        if (targetMembership.getRole() != OrganizationRole.MEMBER) {
+            throw new InvalidStoreAccessGrantException(targetMembership.getId());
+        }
 
         StoreAccess grant = storeAccessRepository.save(
                 new StoreAccess(targetMembership.getId(), store.getId(), organizationId, role));
