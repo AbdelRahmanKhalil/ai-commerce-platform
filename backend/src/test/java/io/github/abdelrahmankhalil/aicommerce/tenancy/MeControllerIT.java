@@ -10,9 +10,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -49,16 +51,49 @@ class MeControllerIT extends AbstractIntegrationTest {
     void concurrentProvisioningResultsInExactlyOneUserAccount() throws Exception {
         String subject = "subject-" + UUID.randomUUID();
 
+        // A CyclicBarrier forces both threads to actually call findOrCreateUserAccount
+        // at the same instant, rather than merely being submitted to the same pool -
+        // without it, the pool could just run them back-to-back and never race at all.
+        CyclicBarrier barrier = new CyclicBarrier(2);
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Callable<UUID> provision = () -> provisioningService.findOrCreateUserAccount(subject);
+            Callable<UUID> provision = () -> {
+                barrier.await(5, TimeUnit.SECONDS);
+                return provisioningService.findOrCreateUserAccount(subject);
+            };
             Future<UUID> first = executor.submit(provision);
             Future<UUID> second = executor.submit(provision);
 
-            UUID firstId = first.get();
-            UUID secondId = second.get();
+            UUID firstId = first.get(10, TimeUnit.SECONDS);
+            UUID secondId = second.get(10, TimeUnit.SECONDS);
 
             assertThat(firstId).isEqualTo(secondId);
+            assertThat(TenancyFixtures.countUserAccountsBySubject(jdbcTemplate, subject)).isEqualTo(1);
+        } finally {
+            executor.shutdown();
+        }
+    }
+
+    @Test
+    void concurrentHttpProvisioningResultsInExactlyOneUserAccount() throws Exception {
+        String subject = "subject-" + UUID.randomUUID();
+
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<String> provisionViaHttp = () -> {
+                barrier.await(5, TimeUnit.SECONDS);
+                return mockMvc.perform(post("/api/me").with(jwtSubject(subject)))
+                        .andExpect(status().isOk())
+                        .andReturn().getResponse().getContentAsString();
+            };
+            Future<String> first = executor.submit(provisionViaHttp);
+            Future<String> second = executor.submit(provisionViaHttp);
+
+            String firstResponse = first.get(10, TimeUnit.SECONDS);
+            String secondResponse = second.get(10, TimeUnit.SECONDS);
+
+            assertThat(firstResponse).isEqualTo(secondResponse);
             assertThat(TenancyFixtures.countUserAccountsBySubject(jdbcTemplate, subject)).isEqualTo(1);
         } finally {
             executor.shutdown();
