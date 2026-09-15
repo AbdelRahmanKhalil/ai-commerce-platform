@@ -4,6 +4,8 @@ import tools.jackson.databind.ObjectMapper;
 import io.github.abdelrahmankhalil.aicommerce.support.AbstractIntegrationTest;
 import io.github.abdelrahmankhalil.aicommerce.support.TenancyFixtures;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
@@ -208,18 +210,28 @@ class StoreAccessAuthorizationIT extends AbstractIntegrationTest {
                 .andExpect(status().isForbidden());
     }
 
-    @Test
-    void cannotGrantStoreAccessToAnOwnerOrAdminMembership() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"OWNER", "ADMIN"})
+    void cannotGrantStoreAccessToAnOwnerOrAdminMembership(String targetRole) throws Exception {
         String ownerSubject = provisionedSubject();
-        UUID organizationId = createOrganization(ownerSubject, "Org H");
+        UUID organizationId = createOrganization(ownerSubject, "Org H-" + targetRole);
         UUID storeId = createStore(ownerSubject, organizationId, "org-h-store-" + UUID.randomUUID(), "EGP");
-        UUID ownerUserAccountId = userAccountId(ownerSubject);
+
+        UUID targetUserAccountId;
+        if ("OWNER".equals(targetRole)) {
+            // The Organization creator is already an OWNER via the real API.
+            targetUserAccountId = userAccountId(ownerSubject);
+        } else {
+            String adminSubject = provisionedSubject();
+            targetUserAccountId = userAccountId(adminSubject);
+            TenancyFixtures.addMembership(jdbcTemplate, targetUserAccountId, organizationId, targetRole);
+        }
 
         mockMvc.perform(post("/api/organizations/{orgId}/stores/{storeId}/store-access", organizationId, storeId)
                         .with(jwtSubject(ownerSubject))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
-                                "userAccountId", ownerUserAccountId.toString(),
+                                "userAccountId", targetUserAccountId.toString(),
                                 "role", "CATALOG_EDITOR"))))
                 .andExpect(status().isBadRequest());
     }

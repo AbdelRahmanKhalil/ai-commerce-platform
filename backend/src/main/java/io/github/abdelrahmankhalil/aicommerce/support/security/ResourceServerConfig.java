@@ -57,9 +57,20 @@ public class ResourceServerConfig {
             @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}") String issuerUri,
             @Value("${app.security.expected-audience}") String expectedAudience) {
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withIssuerLocation(issuerUri).build();
+        decoder.setJwtValidator(tokenValidator(issuerUri, expectedAudience));
+        return decoder;
+    }
+
+    /**
+     * Extracted so tests can prove this exact issuer+audience validator combination -
+     * not a re-implementation of it - rejects a wrong-audience token, without needing
+     * to fetch JWKS over the network (see {@code ResourceServerJwtDecoderTest}, which
+     * wires this same method onto a decoder backed by a locally-generated key pair
+     * instead of a real/fake OIDC server).
+     */
+    static OAuth2TokenValidator<Jwt> tokenValidator(String issuerUri, String expectedAudience) {
         OAuth2TokenValidator<Jwt> withIssuer = JwtValidators.createDefaultWithIssuer(issuerUri);
         OAuth2TokenValidator<Jwt> withAudience = new AudienceValidator(expectedAudience);
-        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(List.of(withIssuer, withAudience)));
-        return decoder;
+        return new DelegatingOAuth2TokenValidator<>(List.of(withIssuer, withAudience));
     }
 }
