@@ -44,13 +44,19 @@ already defines.
   preserving the merchant's original casing.** The same SKU value may be reused across
   different Stores. This is enforced with a Postgres expression unique index over the
   Store id and the lower-cased SKU, not a global unique constraint and not a `citext`
-  column.
+  column. Surrounding whitespace is trimmed before persistence — the persisted SKU
+  never has leading or trailing whitespace — while casing is otherwise preserved
+  exactly as the merchant entered it; uniqueness remains case-insensitive per Store.
 - **Price belongs to `ProductVariant`,** stored as a fixed-point decimal amount, never
   floating-point (per `CLAUDE.md`). **Currency is never duplicated on Variant** — it is
   always resolved from the owning Store's `currencyCode` (ADR 002), which remains one
   currency per Store for MVP.
 - **`Product` and `Category` are related many-to-many, and flat.** There is no Category
   hierarchy and no separate Collection aggregate in this slice.
+- **Both `Product` and `Category` have a normalized, Store-scoped slug.** Each slug is
+  unique within its own Store, not globally — the same slug may exist in different
+  Stores. This follows the same per-Store uniqueness pattern already used for SKU and
+  for `Store.slug` itself (ADR 002).
 - **`ProductVariant.attributes` is a flat `String -> String` map, persisted as JSONB,**
   for MVP — not a normalized option/option-value schema. Two Variants of the same
   Product may not share an identical attribute combination; this is enforced at the
@@ -75,13 +81,13 @@ already defines.
   `SUPPORT_AGENT` are read-only against catalog. All checks go through tenancy's public
   `TenancyAuthorization` API — catalog never imports tenancy's entities, repositories,
   or `tenancy.internal` types.
-- **`catalog` is introduced as a closed Spring Modulith module,** following the same
-  shape as `tenancy`: a small public API in the module's root package, entities/
-  repositories/internal services under `catalog.internal`, controllers under
-  `catalog.web`.
-- **No public `catalog` Java API is introduced in this slice.** Catalog exposes only its
-  HTTP surface; a root-package service interface for other modules to call is deferred
-  because no concrete cross-module consumer exists yet.
+- **`catalog` is introduced as a closed Spring Modulith module that exposes no
+  cross-module Java API in this slice.** The module's root package contains only the
+  module declaration for now; implementation types (entities, repositories, internal
+  services) live under `catalog.internal`, and controllers live under `catalog.web`. A
+  root-package service interface for other modules to call is deferred because no
+  concrete cross-module consumer exists yet — `catalog` exposes only its HTTP surface
+  today.
 - **`V2__catalog.sql` introduces the catalog schema as a new migration; `V1__tenancy.sql`
   is not modified.**
 - **Inventory, the public storefront APIs, ordering, customers, and AI/RAG remain out of
