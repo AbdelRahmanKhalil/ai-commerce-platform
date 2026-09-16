@@ -55,8 +55,8 @@ already defines.
   hierarchy and no separate Collection aggregate in this slice.
 - **Both `Product` and `Category` have a normalized, Store-scoped slug.** Each slug is
   unique within its own Store, not globally — the same slug may exist in different
-  Stores. This follows the same per-Store uniqueness pattern already used for SKU and
-  for `Store.slug` itself (ADR 002).
+  Stores. This follows the same per-Store uniqueness pattern already used for SKU;
+  `Store.slug` remains governed separately by the tenancy model. (ADR 002).
 - **`ProductVariant.attributes` is a flat `String -> String` map, persisted as JSONB,**
   for MVP — not a normalized option/option-value schema. Two Variants of the same
   Product may not share an identical attribute combination; this is enforced at the
