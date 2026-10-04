@@ -48,6 +48,15 @@ public class ProductService {
                                List<ImageInput> images) {
         tenancyAuthorization.requireStoreAccess(userAccountId, organizationId, storeId, CatalogRoles.WRITE);
 
+        // ADR 006: every Product has at least one Variant - an application invariant
+        // enforced here, at the write transaction boundary, rather than relying on the
+        // controller's @NotEmpty Bean Validation (which does not protect this method
+        // against being called directly). The Product must not be created before this
+        // check.
+        if (variants == null || variants.isEmpty()) {
+            throw new EmptyVariantsException();
+        }
+
         Set<UUID> distinctCategoryIds = new LinkedHashSet<>(categoryIds);
         requireCategoriesBelongToStore(organizationId, storeId, distinctCategoryIds);
 

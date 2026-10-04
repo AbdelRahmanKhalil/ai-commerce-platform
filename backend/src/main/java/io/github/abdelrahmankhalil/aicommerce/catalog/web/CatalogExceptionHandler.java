@@ -1,6 +1,7 @@
 package io.github.abdelrahmankhalil.aicommerce.catalog.web;
 
 import io.github.abdelrahmankhalil.aicommerce.catalog.internal.CategoryNotFoundException;
+import io.github.abdelrahmankhalil.aicommerce.catalog.internal.EmptyVariantsException;
 import io.github.abdelrahmankhalil.aicommerce.catalog.internal.InvalidAttributesException;
 import io.github.abdelrahmankhalil.aicommerce.catalog.internal.InvalidPagingParametersException;
 import io.github.abdelrahmankhalil.aicommerce.catalog.internal.ProductNotFoundException;
@@ -41,6 +42,11 @@ class CatalogExceptionHandler {
     @ExceptionHandler(InvalidAttributesException.class)
     ResponseEntity<ProblemDetail> handleInvalidAttributes(InvalidAttributesException ex) {
         return badRequest("Invalid variant attributes", ex.getMessage());
+    }
+
+    @ExceptionHandler(EmptyVariantsException.class)
+    ResponseEntity<ProblemDetail> handleEmptyVariants(EmptyVariantsException ex) {
+        return badRequest("Invalid product variants", ex.getMessage());
     }
 
     @ExceptionHandler(InvalidPagingParametersException.class)

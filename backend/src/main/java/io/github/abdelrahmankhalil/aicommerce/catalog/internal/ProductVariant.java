@@ -18,8 +18,9 @@ import java.util.UUID;
 /**
  * A Store-scoped ProductVariant (ADR 006). Every Product has at least one Variant -
  * enforced as an application invariant by {@code ProductService}, never by a
- * declarative database constraint. Never hard-deleted -
- * {@link VariantStatus#INACTIVE} is the terminal lifecycle state instead.
+ * declarative database constraint. Never hard-deleted - status moves between
+ * {@link VariantStatus#ACTIVE} and {@link VariantStatus#INACTIVE} instead, in either
+ * direction.
  * <p>
  * {@code attributes} is a flat {@code String -> String} map persisted as JSONB
  * (never a normalized option/option-value schema, per ADR 006). Price carries no

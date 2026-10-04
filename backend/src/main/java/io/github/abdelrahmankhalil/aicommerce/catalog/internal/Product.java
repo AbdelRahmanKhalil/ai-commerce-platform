@@ -12,11 +12,12 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * A Store-scoped Product (ADR 006). Never hard-deleted - {@link ProductStatus#ARCHIVED}
- * is the terminal lifecycle state instead. Deliberately has no JPA relations to its
- * Variants/Categories/Images: those are queried explicitly and scoped by
- * organizationId/storeId/productId at each call site, per ADR 004's explicit-scoping
- * requirement and to avoid large, implicitly-loaded object graphs.
+ * A Store-scoped Product (ADR 006). Never hard-deleted - status moves between
+ * {@link ProductStatus} values instead, including out of ARCHIVED, since this MVP
+ * slice does not implement a state-machine transition policy. Deliberately has no JPA
+ * relations to its Variants/Categories/Images: those are queried explicitly and scoped
+ * by organizationId/storeId/productId at each call site, per ADR 004's
+ * explicit-scoping requirement and to avoid large, implicitly-loaded object graphs.
  */
 @Entity
 @Table(name = "product")

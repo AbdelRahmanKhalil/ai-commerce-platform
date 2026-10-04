@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -72,6 +73,59 @@ class ProductUpdateIT extends AbstractCatalogIntegrationTest {
                         .with(jwtSubject(ownerSubject)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.categoryIds", org.hamcrest.Matchers.hasSize(0)));
+    }
+
+    /**
+     * Regression test for the explicit {@code productCategoryRepository.flush()} in
+     * {@code ProductService.updateProduct}: re-submitting the exact same Category set
+     * deletes then re-inserts the same (productId, categoryId) pair. Hibernate's
+     * default flush ordering issues all queued inserts before queued deletes, so
+     * without the explicit flush between the delete and the re-insert, the re-insert
+     * would collide with the still-present old row under the
+     * {@code uq_product_category_product_category} unique constraint - this test
+     * genuinely fails (constraint violation instead of HTTP 200, or a wrong
+     * association count) if that flush is removed.
+     */
+    @Test
+    void updatingWithAnUnchangedCategorySetLeavesExactlyOneAssociation() throws Exception {
+        String ownerSubject = provisionedSubject();
+        UUID organizationId = createOrganization(ownerSubject, "Org Update Same Category");
+        UUID storeId = createStore(ownerSubject, organizationId, "store-" + UUID.randomUUID(), "EGP");
+        UUID categoryAId = createCategory(ownerSubject, organizationId, storeId, "Cat A", "cat-a-unchanged");
+
+        Map<String, Object> createBody = new HashMap<>(simpleProductBody("Unchanged Cat Product", "unchanged-cat-product"));
+        createBody.put("categoryIds", List.of(categoryAId.toString()));
+        String json = mockMvc.perform(post(productsUrl(organizationId, storeId))
+                        .with(jwtSubject(ownerSubject))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createBody)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID productId = UUID.fromString(objectMapper.readTree(json).get("productId").asText());
+
+        // Same single Category, resubmitted unchanged.
+        Map<String, Object> updateBody = Map.of(
+                "title", "Unchanged Cat Product",
+                "slug", "unchanged-cat-product",
+                "status", "ACTIVE",
+                "categoryIds", List.of(categoryAId.toString()),
+                "images", List.of());
+        mockMvc.perform(put(productsUrl(organizationId, storeId) + "/{productId}", productId)
+                        .with(jwtSubject(ownerSubject))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateBody)))
+                .andExpect(status().isOk());
+
+        Long associationCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM product_category WHERE product_id = ? AND store_id = ?", Long.class, productId,
+                storeId);
+        assertThat(associationCount).isEqualTo(1L);
+
+        mockMvc.perform(get(productsUrl(organizationId, storeId) + "/{productId}", productId)
+                        .with(jwtSubject(ownerSubject)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.categoryIds", org.hamcrest.Matchers.hasSize(1)))
+                .andExpect(jsonPath("$.categoryIds[0]").value(categoryAId.toString()));
     }
 
     @Test
