@@ -27,20 +27,24 @@ public class StoreManagementService {
     private final MembershipRepository membershipRepository;
     private final StoreAccessRepository storeAccessRepository;
     private final TenancyAuthorization tenancyAuthorization;
+    private final ReservedStoreSlugPolicy reservedStoreSlugPolicy;
 
     StoreManagementService(StoreRepository storeRepository,
                             MembershipRepository membershipRepository,
                             StoreAccessRepository storeAccessRepository,
-                            TenancyAuthorization tenancyAuthorization) {
+                            TenancyAuthorization tenancyAuthorization,
+                            ReservedStoreSlugPolicy reservedStoreSlugPolicy) {
         this.storeRepository = storeRepository;
         this.membershipRepository = membershipRepository;
         this.storeAccessRepository = storeAccessRepository;
         this.tenancyAuthorization = tenancyAuthorization;
+        this.reservedStoreSlugPolicy = reservedStoreSlugPolicy;
     }
 
     @Transactional
     public UUID createStore(UUID organizationId, UUID requestingUserAccountId, String name, String slug, String currencyCode) {
         tenancyAuthorization.requireOrganizationRole(requestingUserAccountId, organizationId, OWNER_OR_ADMIN);
+        reservedStoreSlugPolicy.requireAvailable(slug);
         Store store = storeRepository.save(new Store(organizationId, name, slug, currencyCode));
         return store.getId();
     }

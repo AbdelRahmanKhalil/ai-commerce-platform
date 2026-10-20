@@ -4,6 +4,17 @@ app:
     # Keycloak realm is shared across clients (ADR 003), so issuer validation alone
     # doesn't prove a token was minted for this API.
     expected-audience: aicommerce-api
+  tenancy:
+    # Deployment-configured reserved Store slugs (ADR 008): Store.slug is a real
+    # routable DNS label under the hosted storefront's <slug>.<base-domain> scheme, so
+    # these labels can never be assigned to a merchant Store. Overridable per
+    # deployment via standard Spring Boot configuration (e.g.
+    # APP_TENANCY_RESERVED_STORE_SLUGS env var) - see ReservedStoreSlugProperties.
+    reserved-store-slugs:
+      - www
+      - api
+      - app
+      - admin
 
 spring:
   application:

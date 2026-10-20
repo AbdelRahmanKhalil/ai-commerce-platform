@@ -4,6 +4,7 @@ import io.github.abdelrahmankhalil.aicommerce.tenancy.TenancyAccessDeniedExcepti
 import io.github.abdelrahmankhalil.aicommerce.tenancy.UserAccountNotProvisionedException;
 import io.github.abdelrahmankhalil.aicommerce.tenancy.internal.InvalidStoreAccessGrantException;
 import io.github.abdelrahmankhalil.aicommerce.tenancy.internal.MembershipNotFoundException;
+import io.github.abdelrahmankhalil.aicommerce.tenancy.internal.ReservedStoreSlugException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -50,6 +51,19 @@ class TenancyExceptionHandler {
                 "This user already has Organization-wide Store access and cannot be granted "
                         + "a Store-scoped role.");
         problem.setTitle("Invalid StoreAccess grant");
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problem);
+    }
+
+    /**
+     * Fixed, sanitized detail - deliberately does not use the exception message or echo
+     * the rejected slug, so a caller can never learn which specific labels are reserved
+     * from the response alone (see ADR 008).
+     */
+    @ExceptionHandler(ReservedStoreSlugException.class)
+    ResponseEntity<ProblemDetail> handleReservedStoreSlug(ReservedStoreSlugException ex) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
+                "This Store slug is reserved and cannot be used.");
+        problem.setTitle("Invalid Store slug");
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(problem);
     }
 }
