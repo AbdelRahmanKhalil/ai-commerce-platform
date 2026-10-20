@@ -12,4 +12,10 @@ interface ProductVariantRepository extends JpaRepository<ProductVariant, UUID> {
 
     Optional<ProductVariant> findByIdAndProductIdAndStoreIdAndOrganizationId(UUID id, UUID productId, UUID storeId,
                                                                               UUID organizationId);
+
+    /**
+     * Scoped lookup for {@code CatalogVariantDirectory} (ADR 007) - never a bare
+     * {@code findById}, so a Variant from another Store or Organization fails safely.
+     */
+    Optional<ProductVariant> findByIdAndStoreIdAndOrganizationId(UUID id, UUID storeId, UUID organizationId);
 }
