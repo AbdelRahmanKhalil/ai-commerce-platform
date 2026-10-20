@@ -15,12 +15,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * The AUTHORIZATION cases required by the task brief (ADR 007): OWNER/ADMIN
  * (Organization-wide) and MANAGER/ORDER_MANAGER (Store-scoped) may read and write
  * Inventory; CATALOG_EDITOR and SUPPORT_AGENT may read but never write. No {@code
- * INVENTORY_MANAGER} role exists.
+ * INVENTORY_MANAGER} role exists. Both Organization-wide roles (OWNER and ADMIN) are
+ * explicitly parameterized here so the matrix is self-documenting, rather than relying
+ * on OWNER being exercised only incidentally by other tests/fixtures that happen to use
+ * an owner subject.
  */
 class InventoryAuthorizationIT extends AbstractInventoryIntegrationTest {
 
     @ParameterizedTest
-    @ValueSource(strings = {"ADMIN"})
+    @ValueSource(strings = {"OWNER", "ADMIN"})
     void organizationWideRolesCanReadAndWriteInventory(String organizationRole) throws Exception {
         String ownerSubject = provisionedSubject();
         UUID organizationId = createOrganization(ownerSubject, "Org Inv " + organizationRole);

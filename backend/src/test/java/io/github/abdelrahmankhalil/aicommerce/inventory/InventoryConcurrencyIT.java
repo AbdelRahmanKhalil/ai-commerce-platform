@@ -7,6 +7,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -22,18 +24,26 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * The CONCURRENCY cases required by the task brief (ADR 007), proved against the
  * real Testcontainers-backed PostgreSQL rather than with fake sequential calls.
  * <p>
- * Both tests use a raw, independently-committed JDBC transaction to deterministically
- * hold a genuine PostgreSQL row/key lock across the entire lifetime of a real,
- * concurrently-running HTTP PUT request (dispatched on a background thread via the
- * actual {@code InventoryController}/{@code InventoryService}/{@code
- * InventoryItemRepository} stack) - the HTTP request's own UPDATE/INSERT statement is
- * thereby forced by PostgreSQL itself to block until this test releases the lock by
- * committing, which guarantees (not merely makes likely) that both writers have
- * established identical pre-conflict state before either is allowed to complete. No
- * production code is touched or given a test-only synchronization hook - the proof
- * relies solely on genuine PostgreSQL MVCC/locking behavior, and the losing write
+ * Both tests use a raw, independently-committed JDBC transaction ("transaction A") to
+ * hold a genuine PostgreSQL row/key lock while a real, concurrently-running HTTP PUT
+ * request (dispatched on a background thread via the actual {@code
+ * InventoryController}/{@code InventoryService}/{@code InventoryItemRepository} stack)
+ * attempts a conflicting write. Overlap is never assumed from elapsed wall-clock time:
+ * after dispatching the background request, each test polls PostgreSQL's own {@code
+ * pg_stat_activity}/{@code pg_blocking_pids()} - using transaction A's real backend PID
+ * (via {@code pg_backend_pid()}) - until PostgreSQL itself confirms that some other
+ * backend is actually blocked waiting on transaction A's lock. Only once the database
+ * has positively confirmed that blocked state does transaction A perform its write and
+ * commit, releasing the background request to resume and resolve. This guarantees (not
+ * merely makes likely) that both writers had established identical pre-conflict state
+ * before either was allowed to complete. No production code is touched or given a
+ * test-only synchronization hook - the proof relies solely on genuine PostgreSQL
+ * MVCC/locking behavior observed through its own system views, and the losing write
  * genuinely goes through the HTTP boundary, so the resulting status code is a direct,
- * non-flaky observation of the real API mapping, not a separately-mocked assertion.
+ * non-flaky observation of the real API mapping, not a separately-mocked assertion. A
+ * short sleep between poll attempts is only a retry interval, bounded by an overall
+ * timeout that fails the test clearly rather than hanging - it is never the evidence of
+ * overlap.
  */
 class InventoryConcurrencyIT extends AbstractInventoryIntegrationTest {
 
@@ -56,6 +66,7 @@ class InventoryConcurrencyIT extends AbstractInventoryIntegrationTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (Connection lockHolder = dataSource.getConnection()) {
             lockHolder.setAutoCommit(false);
+            int lockHolderPid = backendPid(lockHolder);
 
             // Acquire a genuine exclusive row lock, held open (uncommitted) for the
             // remainder of this try block - this is "transaction A" loading version 0
@@ -79,10 +90,11 @@ class InventoryConcurrencyIT extends AbstractInventoryIntegrationTest {
                                     .content(objectMapper.writeValueAsString(Map.of("onHandQuantity", 20))))
                     .andReturn());
 
-            // Give the background request time to reach its (necessarily blocked)
-            // UPDATE statement before we commit - harmless if generous, since the DB
-            // lock (not timing) is what actually prevents a false negative.
-            Thread.sleep(500);
+            // Poll PostgreSQL itself until it confirms the background HTTP request's
+            // UPDATE is genuinely blocked by transaction A's lock - only then is it safe
+            // to proceed, since this is positive proof of overlap rather than a timing
+            // assumption.
+            awaitAnotherBackendBlockedBy(lockHolderPid);
 
             // "Transaction A" commits first, from version 0 to version 1.
             try (PreparedStatement update = lockHolder.prepareStatement(
@@ -124,6 +136,7 @@ class InventoryConcurrencyIT extends AbstractInventoryIntegrationTest {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (Connection lockHolder = dataSource.getConnection()) {
             lockHolder.setAutoCommit(false);
+            int lockHolderPid = backendPid(lockHolder);
 
             // "Transaction A": inserts the first InventoryItem row but does not commit
             // yet - under READ COMMITTED this row is invisible to any other session's
@@ -151,7 +164,10 @@ class InventoryConcurrencyIT extends AbstractInventoryIntegrationTest {
                                     .content(objectMapper.writeValueAsString(Map.of("onHandQuantity", 50))))
                     .andReturn());
 
-            Thread.sleep(500);
+            // Poll PostgreSQL itself until it confirms the background HTTP request's
+            // INSERT is genuinely blocked, pending resolution of the unique-key
+            // conflict against transaction A.
+            awaitAnotherBackendBlockedBy(lockHolderPid);
 
             lockHolder.commit();
 
@@ -167,5 +183,41 @@ class InventoryConcurrencyIT extends AbstractInventoryIntegrationTest {
                 "SELECT on_hand_quantity FROM inventory_item WHERE product_variant_id = ?", Long.class, variantId);
         assertThat(rowCount).isEqualTo(1);
         assertThat(persistedQuantity).isEqualTo(5);
+    }
+
+    /** The real PostgreSQL backend PID of the given raw JDBC connection. */
+    private static int backendPid(Connection connection) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT pg_backend_pid()");
+             ResultSet rs = statement.executeQuery()) {
+            assertThat(rs.next()).isTrue();
+            return rs.getInt(1);
+        }
+    }
+
+    /**
+     * Polls PostgreSQL's own {@code pg_stat_activity}/{@code pg_blocking_pids()} -
+     * using a separate connection from the pool, never the lock holder's own
+     * connection - until it confirms that some OTHER backend is genuinely blocked by
+     * {@code blockingBackendPid}. This is the deterministic proof that the background
+     * HTTP request has actually reached its blocked INSERT/UPDATE statement: elapsed
+     * time is never the evidence, only this bounded poll's positive confirmation from
+     * the database. The short sleep between attempts is only a retry interval, not a
+     * fixed race-window assumption. Fails the test clearly if no such confirmation
+     * arrives within the timeout, rather than silently proceeding unproven.
+     */
+    private void awaitAnotherBackendBlockedBy(int blockingBackendPid) throws InterruptedException {
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(10));
+        while (Instant.now().isBefore(deadline)) {
+            Integer blockedCount = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM pg_stat_activity WHERE pid <> ? AND ? = ANY(pg_blocking_pids(pid))",
+                    Integer.class, blockingBackendPid, blockingBackendPid);
+            if (blockedCount != null && blockedCount > 0) {
+                return;
+            }
+            Thread.sleep(25);
+        }
+        throw new AssertionError(
+                "Timed out waiting for PostgreSQL to confirm another backend was blocked by pid "
+                        + blockingBackendPid);
     }
 }

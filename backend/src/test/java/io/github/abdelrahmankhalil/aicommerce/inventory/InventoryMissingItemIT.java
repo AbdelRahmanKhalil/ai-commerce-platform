@@ -39,9 +39,14 @@ class InventoryMissingItemIT extends AbstractInventoryIntegrationTest {
         String ownerSubject = provisionedSubject();
         UUID organizationId = createOrganization(ownerSubject, "Org Missing Variant");
         UUID storeId = createStore(ownerSubject, organizationId, "store-" + UUID.randomUUID(), "EGP");
+        UUID requestedVariantId = UUID.randomUUID();
 
-        mockMvc.perform(get(inventoryUrl(organizationId, storeId, UUID.randomUUID())).with(jwtSubject(ownerSubject)))
-                .andExpect(status().isNotFound());
+        String body = mockMvc.perform(
+                        get(inventoryUrl(organizationId, storeId, requestedVariantId)).with(jwtSubject(ownerSubject)))
+                .andExpect(status().isNotFound())
+                .andReturn().getResponse().getContentAsString();
+
+        assertSanitizedNotFoundBody(body, requestedVariantId);
     }
 
     @Test
@@ -52,7 +57,35 @@ class InventoryMissingItemIT extends AbstractInventoryIntegrationTest {
         UUID storeBId = createStore(ownerSubject, organizationId, "store-b-" + UUID.randomUUID(), "EGP");
         UUID variantInStoreA = createVariant(ownerSubject, organizationId, storeAId);
 
-        mockMvc.perform(get(inventoryUrl(organizationId, storeBId, variantInStoreA)).with(jwtSubject(ownerSubject)))
-                .andExpect(status().isNotFound());
+        String body = mockMvc.perform(
+                        get(inventoryUrl(organizationId, storeBId, variantInStoreA)).with(jwtSubject(ownerSubject)))
+                .andExpect(status().isNotFound())
+                .andReturn().getResponse().getContentAsString();
+
+        // The foreign Variant's id must never be echoed back - it would otherwise leak
+        // that a given id belongs to a Variant that exists somewhere else.
+        assertSanitizedNotFoundBody(body, variantInStoreA);
+    }
+
+    /**
+     * No SQL/constraint/internal persistence detail ever leaks, and - crucially - the
+     * server's own {@code detail}/{@code title} message never echoes the requested or
+     * foreign Variant id itself (the response's {@code instance} field naturally
+     * mirrors the request URI the client itself sent, per RFC 7807/Spring's
+     * ProblemDetail handling, which is not a leak of new information - but the server
+     * must never additionally confirm/restate that id in its own error message, e.g. by
+     * ever using the raw exception message, which would otherwise distinguish a
+     * "foreign Variant" response from a "truly nonexistent" one).
+     */
+    private void assertSanitizedNotFoundBody(String body, UUID requestedOrForeignVariantId) throws Exception {
+        assertThat(body).doesNotContainIgnoringCase("sql")
+                .doesNotContainIgnoringCase("hibernate")
+                .doesNotContainIgnoringCase("jdbc")
+                .doesNotContainIgnoringCase("constraint")
+                .doesNotContain("io.github.abdelrahmankhalil");
+
+        var problem = objectMapper.readTree(body);
+        assertThat(problem.get("detail").asText()).doesNotContain(requestedOrForeignVariantId.toString());
+        assertThat(problem.get("title").asText()).doesNotContain(requestedOrForeignVariantId.toString());
     }
 }

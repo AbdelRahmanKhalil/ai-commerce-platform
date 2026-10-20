@@ -90,11 +90,14 @@ class InventoryUpsertIT extends AbstractInventoryIntegrationTest {
         UUID storeId = createStore(ownerSubject, organizationId, "store-" + UUID.randomUUID(), "EGP");
         UUID variantId = createVariant(ownerSubject, organizationId, storeId);
 
-        mockMvc.perform(put(inventoryUrl(organizationId, storeId, variantId))
+        String body = mockMvc.perform(put(inventoryUrl(organizationId, storeId, variantId))
                         .with(jwtSubject(ownerSubject))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of("onHandQuantity", -1))))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+
+        assertSanitizedBadRequestBody(body);
 
         Long count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM inventory_item WHERE product_variant_id = ?", Long.class, variantId);
@@ -114,11 +117,14 @@ class InventoryUpsertIT extends AbstractInventoryIntegrationTest {
                         .content(objectMapper.writeValueAsString(Map.of("onHandQuantity", 10))))
                 .andExpect(status().isCreated());
 
-        mockMvc.perform(put(inventoryUrl(organizationId, storeId, variantId))
+        String body = mockMvc.perform(put(inventoryUrl(organizationId, storeId, variantId))
                         .with(jwtSubject(ownerSubject))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of("onHandQuantity", -5))))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+
+        assertSanitizedBadRequestBody(body);
 
         Long persisted = jdbcTemplate.queryForObject(
                 "SELECT on_hand_quantity FROM inventory_item WHERE product_variant_id = ?", Long.class, variantId);
@@ -162,5 +168,14 @@ class InventoryUpsertIT extends AbstractInventoryIntegrationTest {
     private static org.hamcrest.Matcher<String> endsWithInventoryPath(UUID organizationId, UUID storeId, UUID variantId) {
         return org.hamcrest.Matchers.endsWith(
                 "/api/organizations/" + organizationId + "/stores/" + storeId + "/inventory/" + variantId);
+    }
+
+    /** A clean ProblemDetail - never a raw SQL/Hibernate/stack-trace leak. */
+    private static void assertSanitizedBadRequestBody(String body) {
+        assertThat(body).doesNotContainIgnoringCase("sql")
+                .doesNotContainIgnoringCase("hibernate")
+                .doesNotContainIgnoringCase("jdbc")
+                .doesNotContainIgnoringCase("constraint")
+                .doesNotContain("io.github.abdelrahmankhalil");
     }
 }
