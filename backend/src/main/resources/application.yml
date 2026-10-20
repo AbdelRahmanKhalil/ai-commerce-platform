@@ -9,7 +9,7 @@ app:
     # routable DNS label under the hosted storefront's <slug>.<base-domain> scheme, so
     # these labels can never be assigned to a merchant Store. Overridable per
     # deployment via standard Spring Boot configuration (e.g.
-    # APP_TENANCY_RESERVED-STORE-SLUGS env var) - see ReservedStoreSlugProperties.
+    # APP_TENANCY_RESERVED_STORE_SLUGS env var) - see ReservedStoreSlugProperties.
     reserved-store-slugs:
       - www
       - api
